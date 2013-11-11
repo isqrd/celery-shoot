@@ -5,8 +5,7 @@
 	"author": "Mher Movsisyan <mher.movsisyan@gmail.com>",
 	"dependencies": {
 		"amqp": "*",
-		"node-uuid": "*",
-		"redis": "*"
+		"node-uuid": "*"
 	},
 	"repository": {
 		"type": "git",

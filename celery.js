@@ -1,9 +1,8 @@
 var url = require('url'),
 	util = require('util'),
 	amqp = require('amqp'),
-	redis = require('redis'),
 	assert = require('assert'),
-	events = require('events')
+	events = require('events'),
 	uuid = require('node-uuid');
 
 var createMessage = require('./protocol').createMessage;
@@ -31,9 +30,6 @@ function Configuration(options) {
 
 	if (self.RESULT_BACKEND && self.RESULT_BACKEND.toLowerCase() === 'amqp') {
 		self.backend_type = 'amqp';
-	} else if (self.RESULT_BACKEND && url.parse(self.RESULT_BACKEND)
-		.protocol === 'redis:') {
-		self.backend_type = 'redis';
 	}
 }
 
@@ -55,35 +51,6 @@ function Client(conf, callback) {
 	if (self.conf.backend_type === 'amqp') {
 		self.backend = self.broker;
 		self.backend_connected = true;
-	} else if (self.conf.backend_type === 'redis') {
-		var purl = url.parse(self.conf.RESULT_BACKEND),
-			database = purl.pathname.slice(1);
-		self.backend = redis.createClient(purl.port, purl.hostname);
-		if (database) {
-			self.backend.select(database);
-		}
-
-		var on_ready = function() {
-			self.backend_connected = true;
-			if (self.broker_connected) {
-				self.ready = true;
-				debug('Emiting connect event...');
-				self.emit('connect');
-			}
-		};
-
-		self.backend.on('connect', function() {
-			debug('Backend connected...');
-			if (purl.auth) {
-				self.backend.auth(purl.auth.split(':')[1], on_ready);
-			} else {
-				on_ready();
-			}
-		});
-
-		self.backend.on('error', function(err) {
-			self.emit('error', err);
-		});
 	} else {
 		self.backend_connected = true;
 	}

@@ -1,5 +1,5 @@
 echo 'Running protocol tests...'
-mocha test_protocol
+NODE_CELERY_DEBUG=1 mocha test_protocol
 
 echo 'Running functional tests...'
-mocha test_celery
+NODE_CELERY_DEBUG=1 mocha test_celery
