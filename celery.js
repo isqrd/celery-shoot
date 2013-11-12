@@ -1,6 +1,6 @@
 var url = require('url'),
   util = require('util'),
-  amqp = require('amqp'),
+  amqp = require('nathan-amqp'),
   assert = require('assert'),
   events = require('events'),
   uuid = require('node-uuid');
@@ -57,6 +57,7 @@ function Client(conf, callback) {
 
   self.broker.on('ready', function() {
     debug('Broker connected...');
+    self.exchange = self.broker.exchange('celery', {type: 'direct', durable: true, internal: false});
     self.broker_connected = true;
     if (self.backend_connected) {
       self.ready = true;
@@ -68,6 +69,9 @@ function Client(conf, callback) {
     self.emit('error', err);
   });
 
+  self.broker.on('close', function() {
+    self.emit('end');
+  });
   self.broker.on('end', function() {
     self.emit('end');
   });
@@ -81,9 +85,6 @@ Client.prototype.createTask = function(name, options) {
 
 Client.prototype.end = function() {
   this.broker.end();
-  if (this.broker !== this.backend) {
-    this.backend.end();
-  }
 };
 
 Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*/ ) {
@@ -123,7 +124,7 @@ function Task(client, name, options) {
 
   self.publish = function(args, kwargs, options, callback) {
     var id = uuid.v4();
-    self.client.broker.publish(
+    self.client.exchange.publish(
     self.options.queue || queue || self.client.conf.DEFAULT_QUEUE,
     createMessage(self.name, args, kwargs, options, id), {
       'contentType': 'application/json',
@@ -157,20 +158,28 @@ function Result(taskid, client) {
     debug('Subscribing to result queue...');
     self.client.backend.queue(
     self.taskid.replace(/-/g, ''), {
-      "arguments": {
-        'x-expires': self.client.conf.TASK_RESULT_EXPIRES
-      }
+        durable: true,
+        closeChannelOnUnsubscribe: true,
+        "arguments": {
+          'x-expires': self.client.conf.TASK_RESULT_EXPIRES
+        }
     },
 
     function(q) {
+      var ctag;
       q.bind(self.client.conf.RESULT_EXCHANGE, '#');
       q.subscribe(function(message) {
+        q.unsubscribe(ctag);
         self.result = message;
         //q.unbind('#');
         debug('Emiting ready event...');
         self.emit('ready', message);
         self.emit(message.status.toLowerCase(), message);
-      });
+      })
+      .addCallback(function(ok){
+        ctag = ok.consumerTag;
+      })
+
     });
   }
 }

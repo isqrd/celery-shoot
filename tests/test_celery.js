@@ -2,7 +2,7 @@ var celery = require('../celery'),
   assert = require('assert');
 
 var conf = {
-  CELERY_BROKER_URL: 'amqp://',
+  CELERY_BROKER_URL: 'amqp://guest:guest@localhost:5672//',
   CELERY_RESULT_BACKEND: 'amqp'
 };
 
