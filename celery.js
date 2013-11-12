@@ -8,7 +8,7 @@ var url = require('url'),
 var createMessage = require('./protocol').createMessage;
 
 
-debug = process.env.NODE_CELERY_DEBUG === '1' ? util.debug : function() {};
+debugLog = process.env.NODE_CELERY_DEBUG === '1' ? util.debug : function() {};
 
 function Configuration(options) {
   var self = this;
@@ -56,7 +56,7 @@ function Client(conf, callback) {
   }
 
   self.broker.on('ready', function() {
-    debug('Broker connected...');
+    debugLog('Broker connected...');
     self.exchange = self.broker.exchange('celery', {type: 'direct', durable: true, internal: false});
     self.broker_connected = true;
     if (self.backend_connected) {
@@ -84,7 +84,7 @@ Client.prototype.createTask = function(name, options) {
 };
 
 Client.prototype.end = function() {
-  this.broker.end();
+  this.broker.fin();
 };
 
 Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*/ ) {
@@ -155,7 +155,7 @@ function Result(taskid, client) {
   self.result = null;
 
   if (self.client.conf.backend_type === 'amqp') {
-    debug('Subscribing to result queue...');
+    debugLog('Subscribing to result queue...');
     self.client.backend.queue(
     self.taskid.replace(/-/g, ''), {
         durable: true,
@@ -172,7 +172,7 @@ function Result(taskid, client) {
         q.unsubscribe(ctag);
         self.result = message;
         //q.unbind('#');
-        debug('Emiting ready event...');
+        debugLog('Emiting ready event...');
         self.emit('ready', message);
         self.emit(message.status.toLowerCase(), message);
       })
