@@ -153,50 +153,44 @@ function Result(taskid, client) {
   self.taskid = taskid;
   self.client = client;
   self.result = null;
-
-  if (self.client.conf.backend_type === 'amqp') {
-    debugLog('Subscribing to result queue...');
+  debugLog('Subscribing to result queue...');
     self.client.backend.queue(
-    self.taskid.replace(/-/g, ''), {
-        durable: true,
-        closeChannelOnUnsubscribe: true,
-        "arguments": {
-          'x-expires': self.client.conf.TASK_RESULT_EXPIRES
-        }
-    },
+      self.taskid.replace(/-/g, ''),
+      {
+          durable: true,
+          closeChannelOnUnsubscribe: true,
+          "arguments": {
+            'x-expires': self.client.conf.TASK_RESULT_EXPIRES
+          }
+      },
+      onOpen
+    );
 
-    function(q) {
+  function onOpen(queue) {
       var ctag;
-      q.bind(self.client.conf.RESULT_EXCHANGE, '#');
-      q.subscribe(function(message) {
-        q.unsubscribe(ctag);
-        self.result = message;
-        //q.unbind('#');
-        debugLog('Emiting ready event...');
+      queue.bind(self.client.conf.RESULT_EXCHANGE, '#');
+      queue.subscribe(function(message) {
+        var status = message.status.toLowerCase();
+        debugLog('Message on result queue [' + self.taskid + '] status:' + status);
+
         self.emit('ready', message);
-        self.emit(message.status.toLowerCase(), message);
+        self.emit(status, message);
+
+        if (status == 'success' || status == 'failure' || status == 'revoked'){
+          queue.unsubscribe(ctag);
+          self.removeAllListeners()
+        }
       })
       .addCallback(function(ok){
         ctag = ok.consumerTag;
       })
 
-    });
-  }
+    }
+
 }
 
 util.inherits(Result, events.EventEmitter);
 
-Result.prototype.get = function(callback) {
-  var self = this;
-  if (callback && self.result === null) {
-    self.client.backend.get('celery-task-meta-' + self.taskid, function(err, reply) {
-      self.result = JSON.parse(reply);
-      callback(self.result);
-    });
-  } else {
-    return self.result;
-  }
-};
 
 exports.createClient = function(config, callback) {
   return new Client(config, callback);
