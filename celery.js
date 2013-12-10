@@ -1,11 +1,13 @@
-var url = require('url'),
-  util = require('util'),
+var util = require('util'),
   amqp = require('nathan-amqp'),
   assert = require('assert'),
   events = require('events'),
-  uuid = require('node-uuid');
+  uuid = require('node-uuid'),
+  hostname = require('os').hostname(),
 
-var createMessage = require('./protocol').createMessage;
+  _ref = require('./protocol'),
+  createMessage = _ref.createMessage,
+  createEvent = _ref.createEvent;
 
 
 debugLog = process.env.NODE_CELERY_DEBUG === '1' ? util.debug : function() {};
@@ -25,6 +27,8 @@ function Configuration(options) {
   self.DEFAULT_EXCHANGE_TYPE = self.DEFAULT_EXCHANGE_TYPE || 'direct';
   self.DEFAULT_ROUTING_KEY = self.DEFAULT_ROUTING_KEY || 'celery';
   self.RESULT_EXCHANGE = self.RESULT_EXCHANGE || 'celeryresults';
+  self.EVENT_EXCHANGE = self.EVENT_EXCHANGE || 'celeryev';
+  self.SEND_TASK_SENT_EVENT = self.SEND_TASK_SENT_EVENT || false;
   self.TASK_RESULT_EXPIRES = self.TASK_RESULT_EXPIRES || 86400000; // 1 day
   self.ROUTES = self.ROUTES || {};
 
@@ -57,7 +61,12 @@ function Client(conf, callback) {
 
   self.broker.on('ready', function() {
     debugLog('Broker connected...');
+    debugLog('Creating Default Exchange');
     self.exchange = self.broker.exchange('celery', {type: 'direct', durable: true, internal: false});
+    if(self.conf.SEND_TASK_SENT_EVENT){
+      debugLog('Creating Event exchange');
+      self.events_exchange = self.broker.exchange(self.conf.EVENT_EXCHANGE, {type: 'topic', durable: true, internal: false});
+    }
     self.broker_connected = true;
     if (self.backend_connected) {
       self.ready = true;
@@ -123,14 +132,40 @@ function Task(client, name, options) {
     queue = route && route.queue;
 
   self.publish = function(args, kwargs, options, callback) {
-    var id = uuid.v4();
+    var id = uuid.v4(), event,
+      message = createMessage(self.name, args, kwargs, options, id);
+
     self.client.exchange.publish(
-    self.options.queue || queue || self.client.conf.DEFAULT_QUEUE,
-    createMessage(self.name, args, kwargs, options, id), {
-      'contentType': 'application/json',
-      'contentEncoding': 'utf-8'
-    },
-    callback);
+      self.options.queue || queue || self.client.conf.DEFAULT_QUEUE,
+      message,
+      {
+        'contentType': 'application/json',
+        'contentEncoding': 'utf-8'
+      },
+      callback
+    );
+
+    if (self.client.conf.SEND_TASK_SENT_EVENT){
+      event = createEvent(message, {
+        exchange: self.client.conf.DEFAULT_EXCHANGE,
+        routing_key: self.client.conf.DEFAULT_ROUTING_KEY,
+        queue: self.client.conf.DEFAULT_QUEUE,
+        hostname: hostname
+      });
+      self.client.events_exchange.publish(
+        'task.sent',
+        event,
+        {
+          'contentType': 'application/json',
+          'contentEncoding': 'utf-8',
+          'headers': {
+            'hostname': hostname
+          },
+          'deliveryMode': 2
+        }
+
+      )
+    }
     return new Result(id, self.client);
   };
 }
