@@ -27,6 +27,17 @@ client.on('connect', function() {
 });
 ```
 
+**Note:** When using AMQP as resultbackend with celery prior to version
+3.1.7 the result queue needs to be non durable or it will fail with a:
+Queue.declare: (406) PRECONDITION_FAILED.
+
+```javascript
+var celery = require('node-celery'),
+	client = celery.createClient({
+		CELERY_TASK_RESULT_DURABLE: false
+	});
+```
+
 ### ETA
 
 The ETA (estimated time of arrival) lets you set a specific date and time that is the earliest time at which your task will be executed:
