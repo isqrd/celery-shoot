@@ -1,5 +1,5 @@
 var util = require('util'),
-  amqp = require('nathan-amqp'),
+  amqp = require('amqp'),
   assert = require('assert'),
   events = require('events'),
   uuid = require('node-uuid'),
@@ -10,7 +10,7 @@ var util = require('util'),
   createEvent = _ref.createEvent;
 
 
-debugLog = process.env.NODE_CELERY_DEBUG === '1' ? util.debug : function() {};
+debug = process.env.NODE_CELERY_DEBUG === '1' ? util.debug : function() {};
 
 function Configuration(options) {
   var self = this;
@@ -23,13 +23,14 @@ function Configuration(options) {
 
   self.BROKER_URL = self.BROKER_URL || 'amqp://';
   self.DEFAULT_QUEUE = self.DEFAULT_QUEUE || 'celery';
-  self.DEFAULT_EXCHANGE = self.DEFAULT_EXCHANGE || '';
+  self.DEFAULT_EXCHANGE = self.DEFAULT_EXCHANGE || 'celery';
   self.DEFAULT_EXCHANGE_TYPE = self.DEFAULT_EXCHANGE_TYPE || 'direct';
   self.DEFAULT_ROUTING_KEY = self.DEFAULT_ROUTING_KEY || 'celery';
   self.RESULT_EXCHANGE = self.RESULT_EXCHANGE || 'celeryresults';
   self.EVENT_EXCHANGE = self.EVENT_EXCHANGE || 'celeryev';
   self.SEND_TASK_SENT_EVENT = self.SEND_TASK_SENT_EVENT || false;
-  self.TASK_RESULT_EXPIRES = self.TASK_RESULT_EXPIRES || 86400000; // 1 day
+  self.TASK_RESULT_EXPIRES = self.TASK_RESULT_EXPIRES * 1000 || 86400000; // Default 1 day
+  self.TASK_RESULT_DURABLE = self.TASK_RESULT_DURABLE || true; // Set Durable true by default (Celery 3.1.7)
   self.ROUTES = self.ROUTES || {};
 
   if (self.RESULT_BACKEND && self.RESULT_BACKEND.toLowerCase() === 'amqp') {
@@ -46,8 +47,10 @@ function Client(conf, callback) {
   self.broker_connected = false;
   self.backend_connected = false;
 
+  debug('Connecting to broker...');
   self.broker = amqp.createConnection({
-    url: self.conf.BROKER_URL
+    url: self.conf.BROKER_URL,
+    heartbeat: 580
   }, {
     defaultExchangeName: self.conf.DEFAULT_EXCHANGE
   }, callback);
@@ -60,11 +63,11 @@ function Client(conf, callback) {
   }
 
   self.broker.on('ready', function() {
-    debugLog('Broker connected...');
-    debugLog('Creating Default Exchange');
-    self.exchange = self.broker.exchange('celery', {type: 'direct', durable: true, internal: false});
+    debug('Broker connected...');
+    debug('Creating Default Exchange');
+    self.exchange = self.broker.exchange(self.conf.DEFAULT_EXCHANGE, {type: self.conf.DEFAULT_EXCHANGE_TYPE, durable: true, internal: false});
     if(self.conf.SEND_TASK_SENT_EVENT){
-      debugLog('Creating Event exchange');
+      debug('Creating Event exchange');
       self.events_exchange = self.broker.exchange(self.conf.EVENT_EXCHANGE, {type: 'topic', durable: true, internal: false});
     }
     self.broker_connected = true;
@@ -93,7 +96,7 @@ Client.prototype.createTask = function(name, options) {
 };
 
 Client.prototype.end = function() {
-  this.broker.fin();
+  this.broker.disconnect();
 };
 
 Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*/ ) {
@@ -116,6 +119,7 @@ Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*
     result = task.call(args, kwargs, options);
 
   if (callback) {
+    debug('Subscribing to result...');
     result.on('ready', callback);
   }
   return result;
@@ -188,11 +192,11 @@ function Result(taskid, client) {
   self.taskid = taskid;
   self.client = client;
   self.result = null;
-  debugLog('Subscribing to result queue...');
+  debug('Subscribing to result queue...');
     self.client.backend.queue(
       self.taskid.replace(/-/g, ''),
       {
-          durable: true,
+          durable: self.client.conf.TASK_RESULT_DURABLE,
           closeChannelOnUnsubscribe: true,
           "arguments": {
             'x-expires': self.client.conf.TASK_RESULT_EXPIRES
@@ -206,7 +210,7 @@ function Result(taskid, client) {
       queue.bind(self.client.conf.RESULT_EXCHANGE, '#');
       queue.subscribe(function(message) {
         var status = message.status.toLowerCase();
-        debugLog('Message on result queue [' + self.taskid + '] status:' + status);
+        debug('Message on result queue [' + self.taskid + '] status:' + status);
 
         self.emit('ready', message);
         self.emit(status, message);

@@ -1,19 +1,20 @@
 {
-    "name": "node-celery",
-    "version": "0.2.0",
-    "description": "Celery client for Node",
-    "author": "Mher Movsisyan <mher.movsisyan@gmail.com>",
-    "dependencies": {
-        "amqp": "*",
-        "node-uuid": "*"
-    },
-    "repository": {
-        "type": "git",
-        "url": "git://github.com/mher/node-celery.git"
-    },
-    "devDependencies": {
-        "mocha": "*"
-    },
-    "engine": "node >= 0.8.2",
-    "main": "celery.js"
+  "name": "celery-shoot",
+  "version": "2.0.0",
+  "description": "Celery client for Node (Forked from node-celery)",
+  "author": "Nathan Muir <ndmuir@gmail.com>",
+  "contributors": ["Mher Movsisyan <mher.movsisyan@gmail.com>"],
+  "dependencies": {
+    "amqp": "0.2.*",
+    "node-uuid": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/nathan-muir/celery-shoot.git"
+  },
+  "devDependencies": {
+    "mocha": "*"
+  },
+  "engine": "node >= 0.8.2",
+  "main": "celery.js"
 }
