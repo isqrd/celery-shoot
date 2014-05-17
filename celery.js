@@ -9,8 +9,7 @@ var util = require('util'),
   createMessage = _ref.createMessage,
   createEvent = _ref.createEvent;
 
-
-debug = process.env.NODE_CELERY_DEBUG === '1' ? util.debug : function() {};
+debug_fn = process.env.NODE_CELERY_DEBUG === '1' ? util.debug : function() {};
 
 function Configuration(options) {
   var self = this;
@@ -47,13 +46,11 @@ function Client(conf, callback) {
   self.broker_connected = false;
   self.backend_connected = false;
 
-  debug('Connecting to broker...');
+  debug_fn('Connecting to broker...');
   self.broker = amqp.createConnection({
     url: self.conf.BROKER_URL,
     heartbeat: 580
-  }, {
-    defaultExchangeName: self.conf.DEFAULT_EXCHANGE
-  }, callback);
+  }, {}, callback);
 
   if (self.conf.backend_type === 'amqp') {
     self.backend = self.broker;
@@ -63,12 +60,12 @@ function Client(conf, callback) {
   }
 
   self.broker.on('ready', function() {
-    debug('Broker connected...');
-    debug('Creating Default Exchange');
-    self.exchange = self.broker.exchange(self.conf.DEFAULT_EXCHANGE, {type: self.conf.DEFAULT_EXCHANGE_TYPE, durable: true, internal: false});
+    debug_fn('Broker connected...');
+    debug_fn('Creating Default Exchange');
+    self.exchange = self.broker.exchange(self.conf.DEFAULT_EXCHANGE, {type: self.conf.DEFAULT_EXCHANGE_TYPE, durable: true, internal: false, autoDelete: false});
     if(self.conf.SEND_TASK_SENT_EVENT){
-      debug('Creating Event exchange');
-      self.events_exchange = self.broker.exchange(self.conf.EVENT_EXCHANGE, {type: 'topic', durable: true, internal: false});
+      debug_fn('Creating Event exchange');
+      self.events_exchange = self.broker.exchange(self.conf.EVENT_EXCHANGE, {type: 'topic', durable: true, internal: false, autoDelete: false});
     }
     self.broker_connected = true;
     if (self.backend_connected) {
@@ -119,7 +116,7 @@ Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*
     result = task.call(args, kwargs, options);
 
   if (callback) {
-    debug('Subscribing to result...');
+    debug_fn('Subscribing to result...');
     result.on('ready', callback);
   }
   return result;
@@ -192,7 +189,7 @@ function Result(taskid, client) {
   self.taskid = taskid;
   self.client = client;
   self.result = null;
-  debug('Subscribing to result queue...');
+  debug_fn('Subscribing to result queue...');
     self.client.backend.queue(
       self.taskid.replace(/-/g, ''),
       {
@@ -210,7 +207,7 @@ function Result(taskid, client) {
       queue.bind(self.client.conf.RESULT_EXCHANGE, '#');
       queue.subscribe(function(message) {
         var status = message.status.toLowerCase();
-        debug('Message on result queue [' + self.taskid + '] status:' + status);
+        debug_fn('Message on result queue [' + self.taskid + '] status:' + status);
 
         self.emit('ready', message);
         self.emit(status, message);
