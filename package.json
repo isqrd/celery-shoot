@@ -1,6 +1,6 @@
 {
   "name": "celery-shoot",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Celery client for Node (Forked from node-celery)",
   "author": "Nathan Muir <ndmuir@gmail.com>",
   "contributors": ["Mher Movsisyan <mher.movsisyan@gmail.com>"],
@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/nathan-muir/celery-shoot.git"
+    "url": "git://github.com/3stack-software/celery-shoot.git"
   },
   "devDependencies": {
     "mocha": "*"
