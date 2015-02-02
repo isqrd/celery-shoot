@@ -88,8 +88,8 @@ function Client(conf, callback) {
 
 util.inherits(Client, events.EventEmitter);
 
-Client.prototype.createTask = function(name, options) {
-  return new Task(this, name, options);
+Client.prototype.createTask = function(name, options, additionalOptions) {
+  return new Task(this, name, options, additionalOptions);
 };
 
 Client.prototype.end = function() {
@@ -122,54 +122,60 @@ Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*
   return result;
 };
 
-function Task(client, name, options) {
-  var self = this;
+function Task(client, name, options, additionalOptions) {
+  var self = this, route;
 
   self.client = client;
   self.name = name;
   self.options = options || {};
+  self.additionalOptions = additionalOptions || {};
 
-  var route = self.client.conf.ROUTES[name],
-    queue = route && route.queue;
+  self.queue = (route = self.client.conf.ROUTES[name]) && route.queue;
+}
 
-  self.publish = function(args, kwargs, options, callback) {
-    var id = uuid.v4(), event,
-      message = createMessage(self.name, args, kwargs, options, id);
+Task.prototype.publish = function(args, kwargs, options, callback) {
+  var self = this;
 
-    self.client.exchange.publish(
-      self.options.queue || queue || self.client.conf.DEFAULT_QUEUE,
-      message,
+  var id = uuid.v4(), event,
+    message = createMessage(self.name, args, kwargs, options, id);
+
+  self.client.exchange.publish(
+    self.options.queue || self.queue || self.client.conf.DEFAULT_QUEUE,
+    message,
+    {
+      'contentType': 'application/json',
+      'contentEncoding': 'utf-8'
+    },
+    callback
+  );
+
+  if (self.additionalOptions.ignore_result){
+    return null;
+  }
+
+  if (self.client.conf.SEND_TASK_SENT_EVENT){
+    event = createEvent(message, {
+      exchange: self.client.conf.DEFAULT_EXCHANGE,
+      routing_key: self.client.conf.DEFAULT_ROUTING_KEY,
+      queue: self.client.conf.DEFAULT_QUEUE,
+      hostname: hostname
+    });
+    self.client.events_exchange.publish(
+      'task.sent',
+      event,
       {
         'contentType': 'application/json',
-        'contentEncoding': 'utf-8'
-      },
-      callback
-    );
+        'contentEncoding': 'utf-8',
+        'headers': {
+          'hostname': hostname
+        },
+        'deliveryMode': 2
+      }
 
-    if (self.client.conf.SEND_TASK_SENT_EVENT){
-      event = createEvent(message, {
-        exchange: self.client.conf.DEFAULT_EXCHANGE,
-        routing_key: self.client.conf.DEFAULT_ROUTING_KEY,
-        queue: self.client.conf.DEFAULT_QUEUE,
-        hostname: hostname
-      });
-      self.client.events_exchange.publish(
-        'task.sent',
-        event,
-        {
-          'contentType': 'application/json',
-          'contentEncoding': 'utf-8',
-          'headers': {
-            'hostname': hostname
-          },
-          'deliveryMode': 2
-        }
-
-      )
-    }
-    return new Result(id, self.client);
-  };
-}
+    )
+  }
+  return new Result(id, self.client);
+};
 
 Task.prototype.call = function(args, kwargs, options, callback) {
   var self = this;
@@ -212,7 +218,7 @@ function Result(taskid, client) {
         self.emit('ready', message);
         self.emit(status, message);
 
-        if (status == 'success' || status == 'failure' || status == 'revoked'){
+        if (status == 'success' || status == 'failure' || status == 'revoked' || status == 'ignored'){
           queue.unsubscribe(ctag);
           self.removeAllListeners()
         }
