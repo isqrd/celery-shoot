@@ -157,7 +157,7 @@ Task.prototype.publish = function(args, kwargs, options, callback) {
     event = createEvent(message, {
       exchange: self.client.conf.DEFAULT_EXCHANGE,
       routing_key: self.client.conf.DEFAULT_ROUTING_KEY,
-      queue: self.client.conf.DEFAULT_QUEUE,
+      queue: self.options.queue || self.queue || self.client.conf.DEFAULT_QUEUE,
       hostname: hostname
     });
     self.client.events_exchange.publish(
