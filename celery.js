@@ -21,10 +21,9 @@ function Configuration(options) {
   }
 
   self.BROKER_URL = self.BROKER_URL || 'amqp://';
-  self.DEFAULT_QUEUE = self.DEFAULT_QUEUE || 'celery';
-  self.DEFAULT_EXCHANGE = self.DEFAULT_EXCHANGE || 'celery';
+  self.QUEUES = self.QUEUES || ['celery'];
+  self.DEFAULT_QUEUE = self.DEFAULT_QUEUE || self.QUEUES[0];
   self.DEFAULT_EXCHANGE_TYPE = self.DEFAULT_EXCHANGE_TYPE || 'direct';
-  self.DEFAULT_ROUTING_KEY = self.DEFAULT_ROUTING_KEY || 'celery';
   self.RESULT_EXCHANGE = self.RESULT_EXCHANGE || 'celeryresults';
   self.EVENT_EXCHANGE = self.EVENT_EXCHANGE || 'celeryev';
   self.SEND_TASK_SENT_EVENT = self.SEND_TASK_SENT_EVENT || false;
@@ -62,10 +61,13 @@ function Client(conf, callback) {
   self.broker.on('ready', function() {
     debug_fn('Broker connected...');
     debug_fn('Creating Default Exchange');
-    self.exchange = self.broker.exchange(self.conf.DEFAULT_EXCHANGE, {type: self.conf.DEFAULT_EXCHANGE_TYPE, durable: true, internal: false, autoDelete: false});
+    self.exchanges = {};
+    self.conf.QUEUES.forEach(function(queueName){
+      self.exchanges[queueName] = self.broker.exchange(queueName, {type: self.conf.DEFAULT_EXCHANGE_TYPE, durable: true, internal: false, autoDelete: false});
+    });
     if(self.conf.SEND_TASK_SENT_EVENT){
       debug_fn('Creating Event exchange');
-      self.events_exchange = self.broker.exchange(self.conf.EVENT_EXCHANGE, {type: 'topic', durable: true, internal: false, autoDelete: false});
+      self.eventsExchange = self.broker.exchange(self.conf.EVENT_EXCHANGE, {type: 'topic', durable: true, internal: false, autoDelete: false});
     }
     self.broker_connected = true;
     if (self.backend_connected) {
@@ -112,8 +114,8 @@ Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*
     }
   }
 
-  var task = this.createTask(name),
-    result = task.call(args, kwargs, options);
+  var task = this.createTask(name, options),
+    result = task.call(args, kwargs);
 
   if (callback) {
     debug_fn('Subscribing to result...');
@@ -130,17 +132,17 @@ function Task(client, name, options, additionalOptions) {
   self.options = options || {};
   self.additionalOptions = additionalOptions || {};
 
-  self.queue = (route = self.client.conf.ROUTES[name]) && route.queue;
+  self.queueName = (route = self.client.conf.ROUTES[name]) && route.queue || self.options.queue || self.queue || self.client.conf.DEFAULT_QUEUE;
 }
 
-Task.prototype.publish = function(args, kwargs, options, callback) {
+Task.prototype.publish = function(args, kwargs, callback) {
   var self = this;
 
   var id = uuid.v4(), event,
-    message = createMessage(self.name, args, kwargs, options, id);
+    message = createMessage(self.name, args, kwargs, self.options, id);
 
-  self.client.exchange.publish(
-    self.options.queue || self.queue || self.client.conf.DEFAULT_QUEUE,
+  self.client.exchanges[self.queueName].publish(
+    self.queueName,
     message,
     {
       'contentType': 'application/json',
@@ -149,18 +151,18 @@ Task.prototype.publish = function(args, kwargs, options, callback) {
     callback
   );
 
-  if (self.additionalOptions.ignore_result){
+  if (self.additionalOptions.ignoreResult){
     return null;
   }
 
   if (self.client.conf.SEND_TASK_SENT_EVENT){
     event = createEvent(message, {
-      exchange: self.client.conf.DEFAULT_EXCHANGE,
-      routing_key: self.client.conf.DEFAULT_ROUTING_KEY,
-      queue: self.options.queue || self.queue || self.client.conf.DEFAULT_QUEUE,
+      exchange: self.queueName,
+      routing_key: self.queueName,
+      queue: self.queueName,
       hostname: hostname
     });
-    self.client.events_exchange.publish(
+    self.client.eventsExchange.publish(
       'task.sent',
       event,
       {
@@ -177,15 +179,14 @@ Task.prototype.publish = function(args, kwargs, options, callback) {
   return new Result(id, self.client);
 };
 
-Task.prototype.call = function(args, kwargs, options, callback) {
+Task.prototype.call = function(args, kwargs, callback) {
   var self = this;
 
   args = args || [];
   kwargs = kwargs || {};
-  options = options || self.options || {};
 
   assert(self.client.ready);
-  return self.publish(args, kwargs, options, callback);
+  return self.publish(args, kwargs, callback);
 };
 
 function Result(taskid, client) {

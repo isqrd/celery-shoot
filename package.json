@@ -1,6 +1,6 @@
 {
   "name": "celery-shoot",
-  "version": "2.0.2",
+  "version": "3.0.0",
   "description": "Celery client for Node (Forked from node-celery)",
   "author": "Nathan Muir <ndmuir@gmail.com>",
   "contributors": ["Mher Movsisyan <mher.movsisyan@gmail.com>"],
