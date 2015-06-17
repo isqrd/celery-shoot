@@ -7,7 +7,10 @@ var fields = ['task', 'id', 'args', 'kwargs', 'retires', 'eta', 'expires',
 
 
 function formatDate(date) {
-  return new Date(date).toISOString().slice(0, - 1);
+  if (!(date instanceof Date)){
+    date = new Date(Date.now() + date);
+  }
+  return date.toISOString().slice(0, - 1);
 }
 
 function createMessage(task, args, kwargs, options, id) {
