@@ -2,7 +2,7 @@ var uuid = require('node-uuid');
 
 var pid = process.pid;
 
-var fields = ['task', 'id', 'args', 'kwargs', 'retires', 'eta', 'expires',
+var fields = ['task', 'id', 'args', 'kwargs', 'retries', 'eta', 'expires',
               'taskset', 'chord', 'utc', 'callbacks', 'errbacks', 'timeouts'];
 
 
