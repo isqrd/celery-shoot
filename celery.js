@@ -2,7 +2,6 @@ var util = require('util'),
   amqp = require('amqp'),
   assert = require('assert'),
   events = require('events'),
-  uuid = require('node-uuid'),
   hostname = require('os').hostname(),
 
   _ref = require('./protocol'),
@@ -11,7 +10,7 @@ var util = require('util'),
 
 debug_fn = process.env.NODE_CELERY_DEBUG === '1' ? util.debug : function() {};
 
-function Configuration(options) {
+function CeleryConfiguration(options) {
   var self = this;
 
   for (var o in options) {
@@ -39,7 +38,7 @@ function Configuration(options) {
 function Client(conf, callback) {
   var self = this;
 
-  self.conf = new Configuration(conf);
+  self.conf = new CeleryConfiguration(conf);
 
   self.ready = false;
   self.broker_connected = false;
@@ -90,15 +89,36 @@ function Client(conf, callback) {
 
 util.inherits(Client, events.EventEmitter);
 
-Client.prototype.createTask = function(name, options, additionalOptions) {
-  return new Task(this, name, options, additionalOptions);
+/**
+ *
+ * @param name
+ * @param [defaultExecOptions] Passed as properties to the message
+ *         Supports -  retries, expires, taskset, chord, utc, callbacks, errbacks, timelimit
+ *         {@link http://docs.celeryproject.org/en/latest/internals/protocol.html#message-format}
+ * @param [taskOptions] Supports `ignoreResult`
+ * @constructor
+ */
+Client.prototype.createTask = function CeleryClient_createTask(name, defaultExecOptions, taskOptions) {
+  return new Task(this, name, defaultExecOptions, taskOptions);
 };
 
-Client.prototype.end = function() {
+Client.prototype.end = function CeleryClient_end() {
   this.broker.disconnect();
 };
 
-Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*/ ) {
+/**
+ * Shortcut method to quickly call a task.
+ *
+ * Effectively calls `createTask` and then `task.call`
+ *
+ * @param {String} name The name of the task to invoke.
+ * @param {Array} [args]
+ * @param {Object} [kwargs]
+ * @param {Object} [options] Passed as properties to the message
+ *         Supports -  retries, expires, taskset, chord, utc, callbacks, errbacks, timelimit
+ *         {@link http://docs.celeryproject.org/en/latest/internals/protocol.html#message-format}
+ */
+Client.prototype.call = function CeleryClient_call(name /*[args], [kwargs], [options], [callback]*/ ) {
   var args, kwargs, options, callback;
   for (var i = arguments.length - 1; i > 0; i--) {
     if (typeof arguments[i] === 'function') {
@@ -124,22 +144,68 @@ Client.prototype.call = function(name /*[args], [kwargs], [options], [callback]*
   return result;
 };
 
-function Task(client, name, options, additionalOptions) {
+/**
+ * Create a task.
+ *
+ * Will choose queue name with the following priority:
+ *   1. taskOptions.queueName
+ *   2. ROUTES{TaskName}
+ *   3. DEFAULT_QUEUE
+ *
+ * @param client
+ * @param name
+ * @param [defaultExecOptions] Passed as properties to the message
+ *         Supports -  retries, expires, taskset, chord, utc, callbacks, errbacks, timelimit
+ *         {@link http://docs.celeryproject.org/en/latest/internals/protocol.html#message-format}
+ * @param [taskOptions] Supports `ignoreResult` and `queueName`.
+ *
+ * @constructor
+ */
+function Task(client, name, defaultExecOptions, taskOptions) {
   var self = this, route;
 
   self.client = client;
   self.name = name;
-  self.options = options || {};
-  self.additionalOptions = additionalOptions || {};
+  self.defaultExecOptions = defaultExecOptions || {};
+  self.taskOptions = taskOptions || {};
 
-  self.queueName = (route = self.client.conf.ROUTES[name]) && route.queue || self.options.queue || self.queue || self.client.conf.DEFAULT_QUEUE;
+  if (taskOptions.queueName){
+    self.queueName = taskOptions.queueName;
+  } else if ((route = self.client.conf.ROUTES[name]) && route.queue){
+    self.queueName = route.queue;
+  } else {
+    self.queueName = self.client.conf.DEFAULT_QUEUE
+  }
 }
 
-Task.prototype.publish = function(args, kwargs, callback) {
+
+/**
+ * Proxy for `publish` that provides default arguments
+ * @param {Array} [args]
+ * @param {Object} [kwargs]
+ * @param {Object} [execOptions] Overwrite `defaultExecOptions` at runtime.
+ * @param {Function} [callback]
+ */
+Task.prototype.call = function CeleryTask_call(args, kwargs, execOptions, callback) {
   var self = this;
 
-  var id = uuid.v4(), event,
-    message = createMessage(self.name, args, kwargs, self.options, id);
+  assert(self.client.ready);
+  assert(self.client.exchanges[self.queueName] != null);
+
+  args = args || [];
+  kwargs = kwargs || {};
+
+  var options, field;
+  if (execOptions == null){ // or  empty(execOptions)
+    options = self.defaultExecOptions;
+  } else {
+    options = {};
+    for (field in self.defaultExecOptions) options[field] = self.defaultExecOptions[field];
+    for (field in execOptions) options[field] = execOptions[field];
+  }
+
+  var event,
+    message = createMessage(self.name, args, kwargs, options);
 
   self.client.exchanges[self.queueName].publish(
     self.queueName,
@@ -151,7 +217,7 @@ Task.prototype.publish = function(args, kwargs, callback) {
     callback
   );
 
-  if (self.additionalOptions.ignoreResult){
+  if (self.taskOptions.ignoreResult){
     return null;
   }
 
@@ -176,60 +242,51 @@ Task.prototype.publish = function(args, kwargs, callback) {
 
     )
   }
-  return new Result(id, self.client);
+  return new Result(message.id, self.client);
 };
 
-Task.prototype.call = function(args, kwargs, callback) {
-  var self = this;
-
-  args = args || [];
-  kwargs = kwargs || {};
-
-  assert(self.client.ready);
-  return self.publish(args, kwargs, callback);
-};
-
+/**
+ * This isn't really a result "class"... it's just a glorified event emitter, that will eventually
+ *  emit "started" (if track_started=True), then one of "success", "failure", "revoked" or "ignored".
+ *
+ * @param taskid
+ * @param client
+ * @constructor
+ */
 function Result(taskid, client) {
   var self = this;
 
   events.EventEmitter.call(self);
-  self.taskid = taskid;
-  self.client = client;
-  self.result = null;
+
+  var conf = client.conf,
+    TASK_RESULT_DURABLE = conf.TASK_RESULT_DURABLE,
+    TASK_RESULT_EXPIRES = conf.TASK_RESULT_EXPIRES,
+    RESULT_EXCHANGE = conf.RESULT_EXCHANGE;
+
   debug_fn('Subscribing to result queue...');
-    self.client.backend.queue(
-      self.taskid.replace(/-/g, ''),
-      {
-          durable: self.client.conf.TASK_RESULT_DURABLE,
-          closeChannelOnUnsubscribe: true,
-          "arguments": {
-            'x-expires': self.client.conf.TASK_RESULT_EXPIRES
-          }
-      },
-      onOpen
-    );
-
-  function onOpen(queue) {
-      var ctag;
-      queue.bind(self.client.conf.RESULT_EXCHANGE, '#');
-      queue.subscribe(function(message) {
-        var status = message.status.toLowerCase();
-        debug_fn('Message on result queue [' + self.taskid + '] status:' + status);
-
-        self.emit('ready', message);
-        self.emit(status, message);
-
-        if (status == 'success' || status == 'failure' || status == 'revoked' || status == 'ignored'){
-          queue.unsubscribe(ctag);
-          self.removeAllListeners()
-        }
-      })
-      .addCallback(function(ok){
-        ctag = ok.consumerTag;
-      })
-
+  client.backend.queue(taskid.replace(/-/g, ''), {
+    durable: TASK_RESULT_DURABLE,
+    closeChannelOnUnsubscribe: true,
+    "arguments": {
+      'x-expires': TASK_RESULT_EXPIRES
     }
-
+  }, function Result_onQueueOpen(queue) {
+    var ctag = null;
+    queue.bind(RESULT_EXCHANGE, '#');
+    queue.subscribe(function Result_onQueueMessage(message) {
+      var status = message.status.toLowerCase();
+      debug_fn('Message on result queue [' + taskid + '] status:' + status);
+      self.emit(status, message);
+      if (status == 'success' || status == 'failure' || status == 'revoked' || status == 'ignored'){
+        self.emit('ready', message);
+        queue.unsubscribe(ctag);
+        self.removeAllListeners()
+      }
+    })
+    .addCallback(function Result_onQueueReady(ok){
+      ctag = ok.consumerTag;
+    });
+  });
 }
 
 util.inherits(Result, events.EventEmitter);

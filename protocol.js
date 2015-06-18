@@ -2,8 +2,10 @@ var uuid = require('node-uuid');
 
 var pid = process.pid;
 
-var fields = ['task', 'id', 'args', 'kwargs', 'retries', 'eta', 'expires',
-              'taskset', 'chord', 'utc', 'callbacks', 'errbacks', 'timeouts'];
+// http://docs.celeryproject.org/en/latest/internals/protocol.html#message-format
+//var mandatoryFields = ['task', 'id', 'args', 'kwargs'];
+var fields = ['retries', 'eta', 'expires',
+              'taskset', 'chord', 'utc', 'callbacks', 'errbacks', 'timelimit'];
 
 
 function formatDate(date) {
@@ -16,20 +18,20 @@ function formatDate(date) {
 function createMessage(task, args, kwargs, options, id) {
   args = args || [];
   kwargs = kwargs || {};
+  options = options || {};
 
   var message = {
+    id: id || uuid.v4(),
     task: task,
     args: args,
     kwargs: kwargs
   };
 
-  message.id = id || uuid.v4();
-  for (var o in options) {
-    if (options.hasOwnProperty(o)) {
-      if (fields.indexOf(o) === -1) {
-        throw "invalid option: " + o;
-      }
-      message[o] = options[o];
+  var field;
+  for(var i=0; i < fields.length; i++){
+    field = fields[i];
+    if (options.hasOwnProperty(field)){
+      message[field] = options[field];
     }
   }
 
@@ -45,7 +47,18 @@ function createMessage(task, args, kwargs, options, id) {
 }
 
 function createEvent(message, options){
-
+  // Need to update for Celery 4.0 task_sent => before_task_publish
+  //  http://docs.celeryproject.org/en/latest/internals/deprecation.html#removals-for-version-4-0
+  //var event ={
+  //  type: 'before_task_publish',
+  //  body: message,
+  //  exchange: options.exchange || 'celery',
+  //  routing_key: options.routing_key || 'celery',
+  //  headers: {},
+  //  properties: {},
+  //  declare: {},
+  //  retry_policy: {}
+  //};
   var event = {
     args: message.args,
     uuid: message.id,
