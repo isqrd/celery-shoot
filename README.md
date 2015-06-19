@@ -1,60 +1,66 @@
 # Celery client for Node.js
 
 Celery is an asynchronous task/job queue based on distributed
-message passing. node-celery allows to queue tasks from Node.js.
+message passing. `celery-shoot` allows to queue tasks from Node.js.
 If you are new to Celery check out http://celeryproject.org/
+
+## Differences with `node-celery`
+
+ 1. This library is now based on [amqp-coffee](https://github.com/dropbox/amqp-coffee),
+    instead of [node-amqp](https://github.com/postwait/node-amqp).
+
+ 2. `EventEmitter` based code has been removed; only pure callbacks are available.
+
+ 3. Support for the Redis Backend has been removed.
+
+    * I will accept pull-requests if you would like to re-add support.
+
+ 4. Primary Queue / Exchange declaration has been removed. This means if you start up
+    `celery-shoot` on a fresh RabbitMQ vhost, you'll get an error.
+
+    To get around this, just start a `celery worker` on that vhost first.
+
+     * Why? If you declared your Queues/Exchanges from node, you need to mirror
+       the celery settings _exactly_. If you don't, you need to stop both node &
+       celery, delete the queues, restart both services (with the correct settings,
+       or with the `celery worker` first). This was a big trap, that often came up
+       deploying to production so we're better off without it!
 
 ## Usage
 
-Simple example, included as [examples/hello-world.js](https://github.com/mher/node-celery/blob/master/examples/hello-world.js):
+Simple example, included as [examples/hello-world.js](https://github.com/3stack-software/celery-shoot/blob/master/examples/hello-world.js):
 
 ```javascript
-var celery = require('node-celery'),
-	client = celery.createClient({
-		CELERY_BROKER_URL: 'amqp://guest:guest@localhost:5672//',
-		CELERY_RESULT_BACKEND: 'amqp'
-	});
+var celery = require('celery-shoot'),
+client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', function(err){
+  assert(err == null);
 
-client.on('error', function(err) {
-	console.log(err);
-});
-
-client.on('connect', function() {
-	client.call('tasks.echo', ['Hello World!'], function(result) {
-		console.log(result);
-		client.end();
-	});
+  var task = client.createTask('tasks.echo');
+  task.invoke(["Hello Wolrd"], function(err, result){
+      console.log(err, result);
+  })
 });
 ```
 
-**Note:** When using AMQP as resultbackend with celery prior to version
-3.1.7 the result queue needs to be non durable or it will fail with a:
-Queue.declare: (406) PRECONDITION_FAILED.
-
-```javascript
-var celery = require('node-celery'),
-	client = celery.createClient({
-		CELERY_TASK_RESULT_DURABLE: false
-	});
-```
 
 ### ETA
 
 The ETA (estimated time of arrival) lets you set a specific date and time that is the earliest time at which your task will be executed:
 
 ```javascript
-var celery = require('node-celery'),
-	client = celery.createClient({
-		CELERY_BROKER_URL: 'amqp://guest:guest@localhost:5672//',
-	});
+var celery = require('celery-shoot'),
+client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', function(err){
+  assert(err == null);
 
-client.on('connect', function() {
-	client.call('send-email', {
-		to: 'to@example.com',
-		title: 'sample email'
-	}, {
-		eta: new Date(Date.now() + 60 * 60 * 1000) // an hour later
-	});
+  var task = client.createTask('tasks.send_email', {
+      eta: 60 * 60 * 1000 // execute in an hour from invocation
+  }, {
+      ignoreResult: true // ignore results
+  });
+  task.invoke([], {
+    to: 'to@example.com',
+    title: 'sample email'
+  })
 });
 ```
 
@@ -63,53 +69,16 @@ client.on('connect', function() {
 The expires argument defines an optional expiry time, a specific date and time using Date:
 
 ```javascript
-var celery = require('node-celery'),
-	client = celery.createClient({
-		CELERY_BROKER_URL: 'amqp://guest:guest@localhost:5672//',
-	});
+var celery = require('celery-shoot'),
+client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', function(err){
+  assert(err == null);
 
-client.on('connect', function() {
-	client.call('tasks.sleep', [2 * 60 * 60], null, {
-		expires: new Date(Date.now() + 60 * 60 * 1000) // expires in an hour
-	});
-});
-```
-
-### Backends
-
-The backend is used to store task results. Currently AMQP (RabbitMQ) and Redis backends are supported.
-
-```javascript
-var celery = require('node-celery'),
-	client = celery.createClient({
-		CELERY_BROKER_URL: 'amqp://guest:guest@localhost:5672//',
-		CELERY_RESULT_BACKEND: 'redis://localhost/0'
-	});
-
-client.on('connect', function() {
-	var result = client.call('tasks.add', [1, 2]);
-	setTimout(function() {
-		result.get(function(data) {
-			console.log(data); // data will be null if the task is not finished
-		});
-	}, 2000);
-});
-```
-
-AMQP backend allows to subscribe to the task result and get it immediately, without polling:
-
-```javascript
-var celery = require('node-celery'),
-	client = celery.createClient({
-		CELERY_BROKER_URL: 'amqp://guest:guest@localhost:5672//',
-		CELERY_RESULT_BACKEND: 'amqp'
-	});
-
-client.on('connect', function() {
-	var result = client.call('tasks.add', [1, 2]);
-	result.on('ready', function(data) {
-		console.log(data);
-	});
+  var task = client.createTask('tasks.sleep', {
+      eta: 60 * 60 * 1000 // expire in an hour
+  });
+  task.invoke([2 * 60 * 60], function(err, res){
+      console.log(err, res);
+  })
 });
 ```
 
@@ -118,33 +87,24 @@ client.on('connect', function() {
 The simplest way to route tasks to different queues is using CELERY_ROUTES configuration option:
 
 ```javascript
-var celery = require('node-celery'),
-	client = celery.createClient({
-		CELERY_BROKER_URL: 'amqp://guest:guest@localhost:5672//',
-		CELERY_ROUTES: {
-			'tasks.send_mail': {
-				queue: 'mail'
-			}
-		}
-	}),
-	send_mail = client.createTask('tasks.send_mail'),
-	calculate_rating = client.createTask('tasks.calculate_rating');
+var celery = require('celery-shoot'),
+client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', {
+  routes: {
+      'tasks.send_mail': {
+          'queue': 'mail'
+      }
+  }
+}, function(err){
+  assert(err == null);
 
-client.on('error', function(err) {
-	console.log(err);
-});
-
-client.on('connect', function() {
-	send_mail.call({
-		to: 'to@example.com',
-		title: 'hi'
-	}); // sends a task to the mail queue
-	calculate_rating.call({
-		item: 1345
-	}); // sends a task to the default queue
+  var task = client.createTask('tasks.send_email');
+  task.invoke([], {
+    to: 'to@example.com',
+    title: 'sample email'
+  });
+  var task2 = client.createTask('tasks.calculate_rating');
+  task2.invoke([], {
+      item: 1345
+  });
 });
 ```
-
-
-[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/mher/node-celery/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
-

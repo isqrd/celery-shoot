@@ -1,14 +1,11 @@
-var celery = require('../celery'),
-    client = celery.createClient({
-        CELERY_BROKER_URL: 'amqp://guest:guest@localhost:5672//'
-    });
+var celery = require('../src/celery'),
+client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', function(err){
+  assert(err == null);
 
-client.on('error', function(err) {
-    console.log(err);
-});
-
-client.on('connect', function() {
-    client.call('tasks.sleep', [2 * 60 * 60], null, {
-        expires: new Date(Date.now() + 60 * 60 * 1000) // expires in an hour
-    });
+  var task = client.createTask('tasks.sleep', {
+      eta: 60 * 60 * 1000 // expire in an hour
+  });
+  task.invoke([2 * 60 * 60], function(err, res){
+      console.log(err, res);
+  })
 });

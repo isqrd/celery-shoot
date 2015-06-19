@@ -1,12 +1,16 @@
 {
   "name": "celery-shoot",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "Celery client for Node (Forked from node-celery)",
   "author": "Nathan Muir <ndmuir@gmail.com>",
   "contributors": ["Mher Movsisyan <mher.movsisyan@gmail.com>"],
   "dependencies": {
-    "amqp": "0.2.*",
-    "node-uuid": "*"
+    "debug": "~2.2",
+    "amqp-coffee": "~0.1",
+    "node-uuid": "~1.4",
+    "async": "~1.2",
+    "underscore": "~1.8",
+    "URIjs": "~1.15"
   },
   "repository": {
     "type": "git",
@@ -15,6 +19,9 @@
   "devDependencies": {
     "mocha": "*"
   },
-  "engine": "node >= 0.8.2",
-  "main": "celery.js"
+  "engine": {
+    "node": "0.10"
+  },
+  "main": "src/celery.js",
+  "license": "MIT"
 }
