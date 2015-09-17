@@ -61,11 +61,12 @@ module.exports = (function() {
     if (_.isString(connectionUri)) {
       var uri = URI(connectionUri);
       connectionUri = {
-        host: uri.hostname(),
-        port: parseInt(uri.port(), 10),
-        login: uri.username(),
-        password: uri.password(),
-        vhost: uri.path().slice(1)
+        host: uri.hostname() || 'localhost',
+        port: parseInt(uri.port(), 10) || 5672,
+        login: uri.username() || 'guest',
+        password: uri.password() || 'guest',
+        vhost: uri.path().slice(1) || '/',
+        ssl: uri.scheme() === 'amqps'
       }
     }
     if (_.isFunction(options)){
