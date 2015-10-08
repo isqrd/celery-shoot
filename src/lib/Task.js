@@ -13,22 +13,21 @@ module.exports = (function () {
   /**
    * Create a task.
    *
-   * Will choose queue name with the following priority:
-   *   1. taskOptions.queueName
-   *   2. ROUTES{TaskName}.queue
-   *   3. Client.options.defaultQueue
+   * Will choose exchange name with the following priority:
+   *   1. taskOptions.exchangeName
+   *   2. ROUTES{TaskName}.exchangeName
+   *   3. Client.options.defaultExchange
    * Will choose the routing key with the following priority
    *   1. taskOptions.routingKey
    *   2. ROUTES{TaskName}.routingKey
    *   3. Client.options.defaultRoutingKey
-   *   4. The Queue Name
    *
    * @param client
    * @param name
    * @param [defaultExecOptions] Passed as properties to the message
    *         Supports -  retries, expires, taskset, chord, utc, callbacks, errbacks, timelimit
    *         {@link http://docs.celeryproject.org/en/latest/internals/protocol.html#message-format}
-   * @param [taskOptions] Supports `ignoreResult` and `queueName` & `routingKey`
+   * @param [taskOptions] Supports `ignoreResult` and `exchangeName` & `routingKey`
    *
    * @constructor
    */
@@ -42,26 +41,28 @@ module.exports = (function () {
     });
     self.taskOptions = _.defaults(taskOptions, {
       ignoreResult: false,
-      queueName: null,
+      exchangeName: null,
       routingKey: null
     });
+    if (self.taskOptions.queueName != null){
+      console.error('taskOptions.queueName is no longer supported. ' +
+        'Please use taskOptions.queueName & taskOptions.routingKey instead.');
+    }
 
     var route = self.client.options.routes[name];
-    if (self.taskOptions.queueName) {
-      self.queueName = self.taskOptions.queueName;
-    } else if (route && route.queue) {
-      self.queueName = route.queue;
+    if (self.taskOptions.exchangeName != null) {
+      self.exchangeName = self.taskOptions.exchangeName;
+    } else if (route && route.exchange != null) {
+      self.exchangeName = route.exchange;
     } else {
-      self.queueName = self.client.options.defaultQueue
+      self.exchangeName = self.client.options.defaultExchange
     }
-    if (self.taskOptions.routingKey) {
+    if (self.taskOptions.routingKey != null) {
       self.routingKey = self.taskOptions.routingKey;
-    } else if (route && route.routingKey) {
+    } else if (route && route.routingKey != null) {
       self.routingKey = route.routingKey;
-    } else if (self.client.options.routingKey) {
-      self.routingKey = self.client.options.routingKey;
     } else {
-      self.routingKey = self.queueName;
+      self.routingKey = self.client.options.defaultRoutingKey;
     }
   }
 
@@ -158,8 +159,7 @@ module.exports = (function () {
         type: 'task-sent',
 
         // where did we send it?
-        exchange: self.queueName,
-        queue: self.queueName,
+        exchange: self.exchangeName,
         routing_key: self.routingKey,
 
         // identify the current host & time
@@ -184,7 +184,7 @@ module.exports = (function () {
     var invokeAndGetResults = [
       function CeleryTask_publishTask(done) {
         self.client.connection.publish(
-          self.queueName, // actual exchange
+          self.exchangeName, // actual exchange
           self.routingKey, // routing key
           message, //data
           {
@@ -223,14 +223,14 @@ module.exports = (function () {
 
     if (!self.taskOptions.ignoreResult) {
       var resultsQueue = message.id.replace(/-/g, '');
-      invokeAndGetResults.push(function CeleryTask_connectToQueue(done) {
-          debug("connectToQueue");
+      invokeAndGetResults.push(function CeleryTask_connectToResultsQueue(done) {
+          debug("connectToResultsQueue");
           self.client.connection.queue(_.extend({
             queue: resultsQueue
           }, self.client.options.taskResultQueueOptions), done)
         },
-        function CeleryTask_declareQueue(queue, done) {
-          debug("declareQueue");
+        function CeleryTask_declareResultsQueue(queue, done) {
+          debug("declareResultsQueue");
           queue.declare(function (err) {
             done(err, queue);
           });

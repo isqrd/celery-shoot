@@ -11,21 +11,21 @@ module.exports = (function() {
   /**
    * @param {amqp.Connection} connection
    * @param {Object} options
-   * @param {String} [options.defaultQueue=celery]
+   * @param {String} [options.defaultExchange=celery]
    * @param {String} [options.defaultRoutingKey=null]
    * @param {String} [options.resultsExchange=celeryresults]
    * @param {String} [options.eventsExchange=celeryev]
    * @param {Boolean} [options.sendTaskSentEvent=true]
    * @param {Object} [options.taskResultQueueOptions] Settings for result queue (As per AMQP.Queue) {@link https://github.com/dropbox/amqp-coffee#connectionqueuequeueoptionscallback}
-   * @param {Object} [options.routes] A mapping of Task Name => Route. Where Route = {queue: String, routingKey: String}
+   * @param {Object} [options.routes] A mapping of Task Name => Route. Where Route = {exchange: String, routingKey: String}
    * @constructor
    */
   function Client(connection, options) {
     var self = this;
 
     self.options = _.defaults(options, {
-      defaultQueue: 'celery',
-      defaultRoutingKey: null,
+      defaultExchange: 'celery',
+      defaultRoutingKey: 'celery',
       resultsExchange: 'celeryresults',
       eventsExchange: 'celeryev',
       sendTaskSentEvent: true,
@@ -41,6 +41,11 @@ module.exports = (function() {
       },
       routes: {}
     });
+
+    if (self.options.defaultQueue != null){
+      console.error('options.defaultQueue is no longer supported. ' +
+        'Please use options.defaultExchange & options.defaultRoutingKey instead.');
+    }
     self.connection = connection;
   }
 
@@ -48,13 +53,13 @@ module.exports = (function() {
    * Sig (connectionUri[[,options], clientConnected])
    * @param {Object|String} connectionUri eg 'amqp://guest:guest@localhost//'
    * @param {Object} [options]
-   * @param {String} [options.defaultQueue=celery]
+   * @param {String} [options.defaultExchange=celery]
    * @param {String} [options.defaultRoutingKey=null]
    * @param {String} [options.resultsExchange=celeryresults]
    * @param {String} [options.eventsExchange=celeryev]
    * @param {Boolean} [options.sendTaskSentEvent=true]
    * @param {Object} [options.taskResultQueueOptions] Settings for result queue (As per AMQP.Queue) {@link https://github.com/dropbox/amqp-coffee#connectionqueuequeueoptionscallback}
-   * @param {Object} [options.routes] A mapping of Task Name => Route. Where Route = {queue: String, routingKey: String}
+   * @param {Object} [options.routes] A mapping of Task Name => Route. Where Route = {exchange: String, routingKey: String}
    * @param {Function} clientConnected
    */
   Client.connectWithUri = function(connectionUri, options, clientConnected){
