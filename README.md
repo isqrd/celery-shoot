@@ -84,7 +84,7 @@ client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', function(e
 
 ### Routing
 
-The simplest way to route tasks to different queues is using CELERY_ROUTES configuration option:
+The simplest way to route tasks to different queues is using `options.routes`:
 
 ```javascript
 var celery = require('celery-shoot'),
@@ -106,5 +106,23 @@ client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', {
   task2.invoke([], {
       item: 1345
   });
+});
+```
+
+You can also configure custom routers, similar to http://celery.readthedocs.org/en/latest/userguide/routing.html#routers
+
+
+```js
+var myRouter = function(task, args, kwargs){
+  if(task === 'myapp.tasks.compress_video'){
+    return {
+      'exchange': 'video',
+      'routingKey': 'video.compress'
+    }
+  }
+  return null;
+}
+Client({
+  routes: [myRouter]
 });
 ```

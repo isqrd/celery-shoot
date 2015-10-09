@@ -48,22 +48,6 @@ module.exports = (function () {
       console.error('taskOptions.queueName is no longer supported. ' +
         'Please use taskOptions.queueName & taskOptions.routingKey instead.');
     }
-
-    var route = self.client.options.routes[name];
-    if (self.taskOptions.exchangeName != null) {
-      self.exchangeName = self.taskOptions.exchangeName;
-    } else if (route && route.exchange != null) {
-      self.exchangeName = route.exchange;
-    } else {
-      self.exchangeName = self.client.options.defaultExchange
-    }
-    if (self.taskOptions.routingKey != null) {
-      self.routingKey = self.taskOptions.routingKey;
-    } else if (route && route.routingKey != null) {
-      self.routingKey = route.routingKey;
-    } else {
-      self.routingKey = self.client.options.defaultRoutingKey;
-    }
   }
 
   /**
@@ -102,7 +86,15 @@ module.exports = (function () {
     var execOptions = remainingParams > 2 && params[2] || {};
     var options = _.defaults(execOptions, self.defaultExecOptions);
     var message = self.createMessage(args, kwargs, options);
-    this.sendMessage(message, onStarted, onCompleted);
+    var route = self.client.lookupRoute(self.name, args, kwargs);
+    // per call options will always overwrite lookups.
+    if (self.taskOptions.exchange != null){
+      route.exchange = self.taskOptions.exchange;
+    }
+    if (self.taskOptions.routingKey != null){
+      route.routingKey = self.taskOptions.routingKey;
+    }
+    this.sendMessage(route.exchange, route.routingKey, message, onStarted, onCompleted);
   };
 
   function formatDateOrRelativeMs(date) {
@@ -137,15 +129,15 @@ module.exports = (function () {
     return message;
   };
 
-  Task.prototype.createEvent = function CeleryTask_createEvent(message) {
+  Task.prototype.createEvent = function CeleryTask_createEvent(exchange, routingKey, message) {
     var self = this;
     // Need to update for Celery 4.0 task_sent => before_task_publish
     //  http://docs.celeryproject.org/en/latest/internals/deprecation.html#removals-for-version-4-0
     //var event ={
     //  type: 'before_task_publish',
     //  body: message,
-    //  exchange: options.exchange || 'celery',
-    //  routing_key: options.routing_key || 'celery',
+    //  exchange: exchange || 'celery',
+    //  routing_key: routingKey || 'celery',
     //  headers: {},
     //  properties: {},
     //  declare: {},
@@ -159,8 +151,8 @@ module.exports = (function () {
         type: 'task-sent',
 
         // where did we send it?
-        exchange: self.exchangeName,
-        routing_key: self.routingKey,
+        exchange: exchange,
+        routing_key: routingKey,
 
         // identify the current host & time
         timestamp: (new Date()).getTime() / 1000,
@@ -172,11 +164,13 @@ module.exports = (function () {
 
   /**
    *
+   * @param {String} exchange
+   * @param {String} routingKey
    * @param {Array} message
    * @param {Function} [onStarted]
    * @param {Function} [onCompleted]
    */
-  Task.prototype.sendMessage = function CeleryTask_sendMessage(message, onStarted, onCompleted) {
+  Task.prototype.sendMessage = function CeleryTask_sendMessage(exchange, routingKey, message, onStarted, onCompleted) {
     var self = this;
 
     assert(self.client.connection.state === 'open');
@@ -184,8 +178,8 @@ module.exports = (function () {
     var invokeAndGetResults = [
       function CeleryTask_publishTask(done) {
         self.client.connection.publish(
-          self.exchangeName, // actual exchange
-          self.routingKey, // routing key
+          exchange, // exchange
+          routingKey, // routing key
           message, //data
           {
             confirm: true,
@@ -201,7 +195,7 @@ module.exports = (function () {
     if (self.client.options.sendTaskSentEvent) {
       invokeAndGetResults.push(function CeleryTask_sendTaskEvent(done) {
         debug("sendTaskSent");
-        var event = self.createEvent(message);
+        var event = self.createEvent(exchange, routingKey, message);
         self.client.connection.publish(
           self.client.options.eventsExchange, // exchange
           'task.sent', // routing key

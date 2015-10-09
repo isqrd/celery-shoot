@@ -17,7 +17,7 @@ module.exports = (function() {
    * @param {String} [options.eventsExchange=celeryev]
    * @param {Boolean} [options.sendTaskSentEvent=true]
    * @param {Object} [options.taskResultQueueOptions] Settings for result queue (As per AMQP.Queue) {@link https://github.com/dropbox/amqp-coffee#connectionqueuequeueoptionscallback}
-   * @param {Object} [options.routes] A mapping of Task Name => Route. Where Route = {exchange: String, routingKey: String}
+   * @param {Object|Array} [options.routes] A mapping of Task Name => Route. Where Route = {exchange: String, routingKey: String}
    * @constructor
    */
   function Client(connection, options) {
@@ -110,6 +110,43 @@ module.exports = (function() {
    */
   Client.prototype.createTask = function Client_createTask(name, defaultExecOptions, taskOptions) {
     return new Task(this, name, defaultExecOptions || {}, taskOptions || {});
+  };
+
+  /**
+   *
+   * @param {String} taskName
+   * @param {Array} args
+   * @param {Object} kwargs
+   * @returns {!{exchange: String, routingKey: String}}
+   */
+  Client.prototype.lookupRoute = function(taskName, args, kwargs){
+    var self = this;
+    var route = {
+      exchange: self.options.defaultExchange,
+      routingKey: self.options.defaultRoutingKey
+    };
+    var routes = self.options.routes;
+
+    if (_.isArray(routes)){
+      var routerOrMap;
+      for (var i = 0; i < routes.length; i++){
+        routerOrMap = routes[i];
+        if (_.isFunction(routerOrMap)){
+          var result = routerOrMap(taskName, args, kwargs);
+          if (result != null){
+            return _.extend(route, result);
+          }
+        } else if (routerOrMap[taskName] != null) {
+          return _.extend(route, routerOrMap[taskName]);
+        }
+      }
+    } else {
+      if (routes[taskName] != null) {
+        return _.extend(route, routes[taskName]);
+      }
+
+    }
+    return route;
   };
 
   /**
