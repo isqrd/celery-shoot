@@ -1,9 +1,9 @@
 var DEBUG     = require('debug'),
-    DEBUG_LEVEL = 5 || process.env.NODE_CELERY_DEBUG,
+    DEBUG_LEVEL = process.env.CELERY_SHOOT,
     debuggers = {};
 
 module.exports = function(name){
-  if (!DEBUG_LEVEL) {
+  if (DEBUG_LEVEL == null) {
     return function(){};
   }
 

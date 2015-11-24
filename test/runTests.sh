@@ -1,2 +1,2 @@
 echo 'Running functional tests...'
-NODE_CELERY_DEBUG=1 mocha test_celery
+CELERY_SHOOT=5 mocha test_celery

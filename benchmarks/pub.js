@@ -1,4 +1,4 @@
-process.env.NODE_CELERY_DEBUG = 0;
+process.env.CELERY_SHOOT = 5;
 
 var celery = require('../celery'),
 	util = require('util');
