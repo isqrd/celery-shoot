@@ -100,6 +100,15 @@ module.exports = (function() {
   Client.injectFuturesMixin = function(Future){
     mixinFuture(Future);
   };
+
+  /**
+   *
+   * @returns {Task}
+   */
+  Client.exposeTask = function(){
+    return Task;
+  };
+
   /**
    *
    * @param name
