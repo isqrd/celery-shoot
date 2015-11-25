@@ -217,6 +217,16 @@ module.exports = (function () {
 
     if (!self.taskOptions.ignoreResult) {
       var resultsQueue = message.id.replace(/-/g, '');
+
+      if (Task.delayResults != null) {
+        // A custom delay function for testing.
+        debug(function(){ return ['waiting ', Task.delayResults, 'ms before setting up results queue.']});
+        invokeAndGetResults.push(function test_delay(done) {
+          setTimeout(function () {
+            done();
+          }, Task.delayResults);
+        });
+      }
       invokeAndGetResults.push(function CeleryTask_connectToResultsQueue(done) {
           debug("connectToResultsQueue");
           self.client.connection.queue(_.extend({
