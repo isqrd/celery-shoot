@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "celery-shoot": {
-      "version": "4.2.0",
+      "version": "4.2.1",
       "dependencies": {
         "debug": {
           "version": "2.2.0",

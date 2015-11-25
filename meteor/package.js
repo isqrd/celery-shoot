@@ -6,14 +6,14 @@ var repository = 'https://github.com/3stack-software/celery-shoot';
 
 Package.describe({
   name: packageName,
-  version: '4.2.0',
+  version: '4.2.1',
   summary: 'Connect Meteor to a python task server',
   git: repository,
   documentation: '../README.md'
 });
 
 Npm.depends({
-  "celery-shoot": "4.2.0"
+  "celery-shoot": "4.2.1"
 });
 
 Package.onUse(function (api) {
