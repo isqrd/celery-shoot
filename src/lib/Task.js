@@ -6,7 +6,8 @@ var
   assert = require('assert'),
   hostname = require('os').hostname(),
   _ = require('underscore'),
-  pid = process.pid;
+  pid = process.pid,
+  noop = function(){};
 
 
 module.exports = (function () {
@@ -61,7 +62,7 @@ module.exports = (function () {
    */
   Task.prototype.invoke = function CeleryTask_invoke(/* [args, [,kwargs [, execOptions]]][[,onStarted],onCompleted] */) {
     var self = this;
-    var onCompleted, onStarted;
+    var onCompleted = noop, onStarted = noop;
 
     var params = Array.prototype.slice.call(arguments, 0);
 
@@ -163,7 +164,9 @@ module.exports = (function () {
   };
 
   /**
-   *
+   * The following will happen in parallel:
+   *   -> publishTask -> getResults(onStarted, onCompleted)
+   *   -> publishSentEvent
    * @param {String} exchange
    * @param {String} routingKey
    * @param {Array} message
@@ -175,98 +178,197 @@ module.exports = (function () {
 
     assert(self.client.connection.state === 'open');
 
-    var invokeAndGetResults = [
-      function CeleryTask_publishTask(done) {
-        self.client.connection.publish(
-          exchange, // exchange
-          routingKey, // routing key
-          message, //data
-          {
-            confirm: true,
-            mandatory: false,
-            immediate: false,
-            contentEncoding: 'utf-8'
-          },
-          done
-        );
+    debug(5, 'publishTask');
+    self.client.connection.publish(
+      exchange, // exchange
+      routingKey, // routing key
+      message, //data
+      {
+        confirm: true,
+        mandatory: false,
+        immediate: false,
+        contentEncoding: 'utf-8'
+      },
+      function(err, publishResponse){
+        if (err != null){
+          debug(1, ['publishTask failed!', message, err]);
+          onCompleted(err);
+        } else{
+          debug(5, ['publishTask response', message, publishResponse]);
+          if (!self.taskOptions.ignoreResult){
+            if (Task.delayResults == null){
+              self.getResult(message.id, onStarted, onCompleted);
+            } else {
+              setTimeout(function(){
+                self.getResult(message.id, onStarted, onCompleted);
+              }, Task.delayResults);
+            }
+          } else {
+            onCompleted();
+          }
+        }
       }
-    ];
+    );
 
     if (self.client.options.sendTaskSentEvent) {
-      invokeAndGetResults.push(function CeleryTask_sendTaskEvent(done) {
-        debug("sendTaskSent");
-        var event = self.createEvent(exchange, routingKey, message);
-        self.client.connection.publish(
-          self.client.options.eventsExchange, // exchange
-          'task.sent', // routing key
-          event, // data
-          {
-            confirm: true,
-            mandatory: false,
-            immediate: false,
-            contentEncoding: 'utf-8',
-            headers: {
-              hostname: hostname
-            },
-            deliveryMode: 2
+      debug(5, "sendTaskSent");
+      var event = self.createEvent(exchange, routingKey, message);
+      self.client.connection.publish(
+        self.client.options.eventsExchange, // exchange
+        'task.sent', // routing key
+        event, // data
+        {
+          confirm: true,
+          mandatory: false,
+          immediate: false,
+          contentEncoding: 'utf-8',
+          headers: {
+            hostname: hostname
           },
-          done
-        );
-      });
-    }
-
-    if (!self.taskOptions.ignoreResult) {
-      var resultsQueue = message.id.replace(/-/g, '');
-
-      if (Task.delayResults != null) {
-        // A custom delay function for testing.
-        debug(function(){ return ['waiting ', Task.delayResults, 'ms before setting up results queue.']});
-        invokeAndGetResults.push(function test_delay(done) {
-          setTimeout(function () {
-            done();
-          }, Task.delayResults);
-        });
-      }
-      invokeAndGetResults.push(function CeleryTask_connectToResultsQueue(done) {
-          debug("connectToResultsQueue");
-          self.client.connection.queue(_.extend({
-            queue: resultsQueue
-          }, self.client.options.taskResultQueueOptions), done)
+          deliveryMode: 2
         },
-        function CeleryTask_declareResultsQueue(queue, done) {
-          debug("declareResultsQueue");
-          queue.declare(function (err) {
-            done(err, queue);
+        function(err, publishResp){
+          if (err != null) {
+            debug(1, ['sendTaskSent failed!', err])
+          } else {
+            debug(5, ['sendTaskSent response', publishResp]);
+          }
+        }
+      );
+    }
+  };
+
+  /**
+   * -> declare queue
+   *   -> bind to exchange
+   *   -> consume from queue
+   *     -> consumeOk
+   *     -> onMessage
+   *       -> onStarted
+   *       -> resolve
+   * @param taskId
+   * @param onStarted
+   * @param onCompleted
+   */
+  Task.prototype.getResult = function CeleryTask_getResult(taskId, onStarted, onCompleted){
+    var self = this;
+    var resultsQueue = taskId.replace(/-/g, ''),
+        resolved = false;
+
+    // A special resolve function, as we could end up with multiple errors
+    var resolve = function(err, result){
+      if (resolved){
+        debug(1, function(){ return ["Task result after already resolved.", resultsQueue, err]; });
+        return;
+      }
+      resolved = true;
+      if (err != null){
+        debug(1, function(){ return ["An error occurred while resolving task", resultsQueue, err]; });
+        onCompleted(err);
+        return;
+      }
+      debug(5, function(){ return ["Task Resolved", resultsQueue, result]; });
+      onCompleted(null, result);
+    };
+
+    debug(5, function(){ return ["Results - declareQueue", resultsQueue]});
+    var queue = self.client.connection.queue(_.extend({
+      queue: resultsQueue
+    }, self.client.options.taskResultQueueOptions));
+
+    queue.declare(function CeleryTask_declareQueue(queueDeclErr, queueDeclResp) {
+      if (queueDeclErr != null) {
+        debug(1, function () { return ["Results - declareQueueOk", resultsQueue, queueDeclErr] });
+        resolve(queueDeclErr);
+        return;
+      }
+      debug(5, function () { return ["Results - declareQueueOk", resultsQueue, queueDeclResp] });
+
+      // Bit of a hack here,
+      //  to distinguish between the `consumeOk` failing
+      //  and failing to obtain a consumer all together.
+      //  which the `amqp-coffee` does rather poorly.
+      var mgr = self.client.connection.channelManager,
+        errAndConsumer = mgr.consumerChannel(function(err, channelNo){
+          // this function is called synchronously, and returns immediately
+          if (err != null){
+            return [err, null];
+          }
+          if (self.client.connection.channels[channelNo] != null){
+            return [null, self.client.connection.channels[channelNo]];
+          }
+          return ["Tried to obtain a consumer, but the channelNo missing " + channelNo, null];
+        }),
+        obtainConsumerErr = errAndConsumer[0], consumerChannel = errAndConsumer[1];
+
+      if (obtainConsumerErr != null){
+        resolve(obtainConsumerErr);
+        return;
+      }
+
+      async.parallel({
+        resultsQueueBind: function CeleryTask_resultsQueueBind(done){
+          debug(5, function(){ return ["queueBind", resultsQueue]});
+          queue.bind(self.client.options.resultsExchange, '#', function(err, bindRes){
+            if (err != null) {
+              debug(1, function () { return ["queueBindOk - err", resultsQueue, err] });
+              done(err)
+            } else  {
+              debug(5, function () { return ["queueBindOk", resultsQueue, bindRes] });
+              done();
+            }
           });
         },
-        function CeleryTask_getResults(queue, done) {
-          debug("getResults");
-          queue.bind(self.client.options.resultsExchange, '#');
-          var consumer = self.client.connection.consume(resultsQueue, {},
+        resultsConsume: function CeleryTask_resultsConsume(done) {
+          debug(5, function(){ return ["consume", resultsQueue]});
+          consumerChannel.consume(resultsQueue, {},
             function CeleryTask_onMessage(envelope) {
-
               var message = envelope.data,
                 status = message.status.toLowerCase();
-              debug("onmessage::" + status);
+
+              debug(5, function(){ return ["consume - message", resultsQueue, status]});
 
               if (status === 'failure' || status === 'revoked' || status === 'ignored') {
-                consumer.close(function () {
-                  done(message); // error
-                });
-
+                done(message);
               } else if (status === 'success') {
-                consumer.close(function () {
-                  debug('consumer closed!');
-                  done(null, message);
-                });
+                // we fast track the result, so we don't have to wait
+                // for the parallel "queueBindOk" and "closeConsumerCok" to complete.
+                resolve(null, message);
+                done();
               } else if (status === 'started' && onStarted) {
                 onStarted(message);
               }
+            },
+            function CeleryTask_onConsumerOk(err, resp){
+              // If we get an error from the consumeOk,
+              // we won't receive any messages
+              // so just abort immediately
+              if (err){
+                debug(1, function(){ return ["consumeOk", resultsQueue, err]});
+                done(err);
+              } else {
+                debug(5, function(){ return ["consumeOk", resultsQueue, resp]});
+              }
             }
           );
+        }
+      }, function(err){
+        // By closing the consumer channel, the queue is deleted
+        // so we need to wait for the queue-bind to finish first
+        consumerChannel.close(function(err){
+          if (err != null){
+            debug(1, function(){ return ['Error from closing consumer.', resultsQueue]});
+          }
         });
-    }
-    async.waterfall(invokeAndGetResults, onCompleted);
+        if (err != null){
+          debug(1, function(){ return ['resultsQueueBind/resultsConsume', err]; });
+          resolve(err);
+        } else if (!resolved){
+          debug(1, function(){ return ['Not resolved...']; });
+        }
+      })
+    });
+
   };
 
   return Task;
