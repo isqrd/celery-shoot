@@ -6,7 +6,7 @@
   "contributors": ["Mher Movsisyan <mher.movsisyan@gmail.com>"],
   "dependencies": {
     "debug": "~2.2",
-    "amqp-coffee": "0.1.25",
+    "amqp-coffee": "https://github.com/3stack-software/amqp-coffee/tarball/f6883e6773b4343b9cb63c5da57c4147868d9a70",
     "node-uuid": "~1.4",
     "async": "~1.2",
     "underscore": "~1.8",
