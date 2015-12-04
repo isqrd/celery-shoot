@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "celery-shoot": {
-      "version": "4.2.1",
+      "version": "https://github.com/3stack-software/celery-shoot/tarball/7945d170b387a53d305aca0f53383f5b00f307ab",
       "dependencies": {
         "debug": {
           "version": "2.2.0",
@@ -12,23 +12,10 @@
           }
         },
         "amqp-coffee": {
-          "version": "0.1.24",
+          "version": "https://github.com/3stack-software/amqp-coffee/tarball/f6883e6773b4343b9cb63c5da57c4147868d9a70",
           "dependencies": {
-            "bson": {
-              "version": "0.3.2",
-              "dependencies": {
-                "bson-ext": {
-                  "version": "0.1.13",
-                  "dependencies": {
-                    "bindings": {
-                      "version": "1.2.1"
-                    },
-                    "nan": {
-                      "version": "2.0.9"
-                    }
-                  }
-                }
-              }
+            "coffee-script": {
+              "version": "1.4.0"
             }
           }
         },
