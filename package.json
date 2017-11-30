@@ -5,12 +5,12 @@
   "author": "Nathan Muir <ndmuir@gmail.com>",
   "contributors": ["Mher Movsisyan <mher.movsisyan@gmail.com>"],
   "dependencies": {
-    "debug": "~2.2",
-    "amqp-coffee": "0.1.25",
-    "node-uuid": "~1.4",
+    "debug": "^3.1.0",
+    "amqp-coffee": "^0.1.31",
+    "uuid": "^3.1.0",
     "async": "~1.2",
     "underscore": "~1.8",
-    "URIjs": "~1.15"
+    "urijs": "^1.15"
   },
   "repository": {
     "type": "git",
@@ -20,7 +20,7 @@
     "mocha": "*"
   },
   "engine": {
-    "node": "0.10"
+    "node": ">=0.10.0"
   },
   "main": "src/celery.js",
   "license": "MIT"

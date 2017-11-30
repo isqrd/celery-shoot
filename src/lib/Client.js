@@ -3,7 +3,7 @@ var
   amqp = require('amqp-coffee'),
   Task = require('./Task'),
   mixinFuture = require('./Task.mixin.Futures'),
-  URI = require('URIjs'),
+  URI = require('urijs'),
   _ = require('underscore');
 
 

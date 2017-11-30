@@ -1,7 +1,6 @@
 var
   debug = require('./debug')('celery:Task'),
-  uuid = require('node-uuid'),
-  amqp = require('amqp-coffee'),
+  uuidv4 = require('uuid/v4'),
   async = require('async'),
   assert = require('assert'),
   hostname = require('os').hostname(),
@@ -109,7 +108,7 @@ module.exports = (function () {
   Task.prototype.createMessage = function CeleryTask_createMessage(args, kwargs, options, id) {
     var self = this;
     var message = {
-      id: id || uuid.v4(),
+      id: id || uuidv4(),
       task: self.name,
       args: args,
       kwargs: kwargs,
