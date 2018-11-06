@@ -1,14 +1,16 @@
-var celery = require('../celery'),
-client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', function(err){
-  assert(err == null);
+const { withClient } = require('../dist/celery-shoot.cjs');
 
-  var task = client.createTask('tasks.send_email', {
-      eta: 60 * 60 * 1000 // execute in an hour from invocation
-  }, {
-      ignoreResult: true // ignore results
+const AMQP_HOST = process.env.AMQP_HOST || 'amqp://guest:guest@localhost//';
+
+withClient(AMQP_HOST, {}, async client => {
+  await client.invokeTask({
+    name: 'tasks.send_email',
+    kwargs: {
+      to: 'to@example.com',
+      title: 'sample email',
+    },
+    eta: 30 * 1000,
+    ignoreResult: true,
   });
-  task.invoke([], {
-    to: 'to@example.com',
-    title: 'sample email'
-  })
+  console.log('tasks.send_email sent');
 });

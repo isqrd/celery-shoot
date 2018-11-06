@@ -1,83 +1,64 @@
-var CeleryClient = require('../src/celery'),
-  assert = require('assert');
+/* eslint-env mocha */
+const CeleryClient = require('../src/celery');
+const assert = require('assert');
+const Promise = require('bluebird');
 
-describe('celery functional tests', function () {
-  describe('initialization', function () {
-    it('should create a client without error', function (done) {
-      var client1 = CeleryClient.connectWithUri({}, {}, function (err) {
-        assert.ok(err == null);
-        assert.equal(client1.connection.state, 'open');
-        client1.close(function (err) {
-          assert.ok(err == null);
-          done();
-        });
-      });
-    });
+
+const AMQP_HOST = process.env.AMQP_HOST || 'amqp://guest:guest@localhost//';
+
+
+function getClient() {
+  return CeleryClient.connectWithUri(AMQP_HOST).disposer(client => client.close());
+}
+
+
+describe('celery functional tests', () => {
+  describe('initialization', () => {
+    it('should create a client without error', () => Promise.using(getClient(), (client) => {
+      assert.ok(true);
+    }));
   });
 
-  describe('basic task calls', function () {
-    it('should call a task without error', function (done) {
-      var client = CeleryClient.connectWithUri({}, {}, function (err) {
-        assert.ok(err == null);
-        assert.equal(client.connection.state, 'open');
-        var add = client.createTask('tasks.add');
-        add.invoke([1, 2], function (err, resultMsg) {
-          assert.ok(err == null);
-          assert.equal(resultMsg.result, 3);
-
-          client.close(function (err) {
-            assert.ok(err == null);
-            done();
-          })
-        });
+  describe('basic task calls', () => {
+    it('should call a task without error', () => Promise.using(getClient(), (client) => {
+      const add = client.createTask('tasks.add');
+      return add.invoke([1, 2]).then((resultMsg) => {
+        assert.ok(true);
+        assert.equal(resultMsg.result, 3);
       });
-    });
+    }));
   });
 
-  describe('eta', function () {
-    it('should call a task with a delay', function (done) {
-      var client = CeleryClient.connectWithUri({}, {}, function (err) {
-        assert.ok(err == null);
-        assert.equal(client.connection.state, 'open');
-        var time = client.createTask('tasks.time'),
-          calledAt = (new Date()).getTime(),
-          delay = 2 * 1000,
-          acceptableDelay = 1000;
+  describe('eta', () => {
+    it('should call a task with a delay', () => {
+      Promise.using(getClient(), (client) => {
+        const time = client.createTask('tasks.time');
+        const calledAt = (new Date()).getTime();
+        const delay = 2 * 1000;
+        const acceptableDelay = 1000;
 
-        time.invoke([], {}, {eta: delay}, function (err, resultMsg) {
-          assert.ok(err == null);
+        return time.invoke([], {}, { eta: delay }).then((resultMsg) => {
           // should execute within 100ms of delay
           assert.ok(resultMsg.status, 'SUCCESS');
-          //console.log(resultMsg.result, calledAt + delay, resultMsg.result - (calledAt + delay));
+          // console.log(resultMsg.result, calledAt + delay, resultMsg.result - (calledAt + delay));
 
           // make sure it's called at least after the delay
-          assert.ok(resultMsg.result > calledAt + acceptableDelay, "!(" + resultMsg.result + " > " + (calledAt + acceptableDelay) + " )");
-
-          client.close(function (err) {
-            assert.ok(err == null);
-            done();
-          })
+          assert.ok(resultMsg.result > calledAt + acceptableDelay, `!(${resultMsg.result} > ${calledAt + acceptableDelay} )`);
         });
       });
     });
   });
 
-  describe('expires', function () {
-    it('should call a task which expires', function (done) {
-      var client = CeleryClient.connectWithUri({}, {}, function (err) {
-        assert.ok(err == null);
-        assert.equal(client.connection.state, 'open');
-        var time = client.createTask('tasks.time'),
-          pastTime = - 10 * 1000;
+  describe('expires', () => {
+    it('should call a task which expires', () => {
+      Promise.using(getClient(), (client) => {
+        const time = client.createTask('tasks.time');
+        const pastTime = -10 * 1000;
 
-        time.invoke([], {}, {expires: pastTime}, function (err, resultMsg) {
-          assert.ok(err != null);
-          assert.ok(resultMsg == null);
+        return time.invoke([], {}, { expires: pastTime }).then(() => {
+          assert.ok(false);
+        }, (err) => {
           assert.equal(err.status, 'REVOKED');
-          client.close(function (err) {
-            assert.ok(err == null);
-            done();
-          })
         });
       });
     });

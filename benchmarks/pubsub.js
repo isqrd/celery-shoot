@@ -1,31 +1,34 @@
-process.env.CELERY_SHOOT = 5;
+const Promise = require('bluebird');
+const { withClient } = require('../dist/celery-shoot.cjs');
 
-var celery = require('../celery'),
-	util = require('util');
+const AMQP_HOST = process.env.AMQP_HOST || 'amqp://guest:guest@localhost//';
 
-var client = celery.createClient({
-	CELERY_BROKER_URL: 'amqp://',
-	CELERY_RESULT_BACKEND: 'amqp'
-});
+const n = parseInt(process.argv.length > 2 ? process.argv[2] : 100, 10);
+const L = `tasksCompleted (n=${n})`;
 
-client.on('error', function(err) {
-	console.log(err);
-});
-
-var n = parseInt(process.argv.length > 2 ? process.argv[2] : 1000, 10);
-
-client.once('connect', function() {
-	var start = Date.now();
-	var j = n;
-	onresult = function(result) {
-		j--;
-		if (j === 1) {
-			console.log(util.format('Execued %d tasks in %s milliseconds',
-			n, Date.now() - start));
-			client.end();
-		}
-	};
-	for (var i = 0; i < n; i++) {
-		client.call('tasks.add', [i, i], null, null, onresult);
-	}
-});
+withClient(
+  AMQP_HOST,
+  {
+    client: { sendTaskSentEvent: false },
+  },
+  client => {
+    console.time(L);
+    const promises = [];
+    for (let i = 0; i < n; i++) {
+      const promise = client.invokeTask({
+        name: 'tasks.add',
+        args: [i, i],
+      });
+      promises.push(promise);
+    }
+    return Promise.all(promises).then(
+      () => {
+        console.timeEnd(L);
+      },
+      err => {
+        console.timeEnd(L);
+        console.error(err);
+      },
+    );
+  },
+);

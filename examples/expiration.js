@@ -1,11 +1,11 @@
-var celery = require('../src/celery'),
-client = celery.connectWithUri('amqp://guest:guest@localhost:5672//', function(err){
-  assert(err == null);
+const { withClient } = require('../dist/celery-shoot.cjs');
 
-  var task = client.createTask('tasks.sleep', {
-      eta: 60 * 60 * 1000 // expire in an hour
+const AMQP_HOST = process.env.AMQP_HOST || 'amqp://guest:guest@localhost//';
+
+withClient(AMQP_HOST, {}, async client => {
+  await client.invokeTask({
+    name: 'tasks.sleep',
+    args: [2 * 60 * 60],
+    expires: 1000, // in 1s
   });
-  task.invoke([2 * 60 * 60], function(err, res){
-      console.log(err, res);
-  })
 });
