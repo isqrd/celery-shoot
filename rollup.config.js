@@ -49,6 +49,7 @@ export default {
           },
         ],
       ],
+      plugins: ['@babel/plugin-proposal-class-properties'],
       babelrc: false,
     }),
   ],
